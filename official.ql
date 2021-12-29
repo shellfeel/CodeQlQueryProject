@@ -5,7 +5,7 @@
  * @kind path-problem
  * @problem.severity error
  * @precision high
- * @id java/jndi-injection
+ * @id java/log4j2/jndi-injection
  * @tags security
  *       external/cwe/cwe-074
  */
@@ -104,7 +104,7 @@ predicate isStrSubstitutorWithSubstitute(Parameter arg) {
 }
 
 predicate isVarNameExpr(Parameter arg) {
-  exists(|arg.hasName("varNameExpr"))
+  exists(|arg.hasName("chars"))
 }
 
 
@@ -112,27 +112,61 @@ class MyConfig extends TaintTracking::Configuration {
   MyConfig() { this = "MyConfig" }
   
   override predicate isSource(DataFlow::Node source) {
-   exists(Parameter arg| isStrSubstitutorWithSubstitute(arg) and source.asParameter() = arg )
+  //  exists(Parameter arg| isStrSubstitutorWithresolveVariable(arg) and source.asParameter() = arg )
+  exists( |isMessagePatternConverterFormat(source.asParameter()))
   }
   
   override predicate isSink(DataFlow::Node sink) {
    sink instanceof JndiInjectionSink
   }
+
+
+  // 从varNameExpr 作为source点
+  predicate isLocalVarNameExpr(Expr arg) {
+    exists(LocalVariableDecl varNameExpr | varNameExpr.hasName("chars") and varNameExpr.getDeclExpr() = arg and varNameExpr.getCallable().hasName("substitute") )
+  }
+
+  predicate isIsMatch(Expr chars) {
+    exists(MethodAccess call| call.getCallee().hasName("getChars")  and call.getArgument(0) = chars and call.getCaller().hasName("substitute") )
+  }
+  // node 2 varNameExpr
+  predicate isMessagePatternConverterFormat(Parameter arg) {
+    exists( Method method | method.hasName("format") and method.getDeclaringType().hasQualifiedName("org.apache.logging.log4j.core.pattern", "MessagePatternConverter") and method.getParameter(1)=arg)
+    
+  }
+
+   predicate isvarNameExprChar(Expr chars) {
+    exists( MethodAccess call| call.getCallee().hasName("isMatch")  and call.getArgument(0) = chars and call.getCaller().hasName("substitute"))
+    
+  }
   //   override predicate isSanitizer(DataFlow::Node node) {
   //   node.getType() instanceof PrimitiveType or node.getType() instanceof BoxedType
   // }
 
-  //   override predicate isAdditionalTaintStep(DataFlow::Node node1, DataFlow::Node node2) {
-  //   // any(JndiInjectionAdditionalTaintStep c).step(node1, node2)
-  //   exists(1)
-  // }
+    override predicate isAdditionalTaintStep(DataFlow::Node node1, DataFlow::Node node2) {
+    exists(|isIsMatch(node1.asExpr()) and isvarNameExprChar(node2.asExpr()))
+  }
 }
 
-// from DataFlow::PathNode source, DataFlow::PathNode sink, MyConfig conf
-// where conf.hasFlowPath(source, sink)
-// select sink.getNode(), source, sink, "JNDI lookup might include name from $@.", source.getNode(),
-//   "this user input"
+from DataFlow::PathNode source, DataFlow::PathNode sink, MyConfig conf
+where conf.hasFlowPath(source, sink)
+select sink.getNode(), source, sink, "JNDI lookup might include name from $@.", source.getNode(),
+  "this user input"
+// select source,sink
 
-from VarAccess arg, LocalVariableDecl varNameExpr
-where arg.getVariable().hasName("varNameExpr") and varNameExpr.hasName("varNameExpr")
-select arg,varNameExpr, varNameExpr.getDeclExpr()
+// from LocalVariableDecl varNameExpr, Expr arg
+// where varNameExpr.hasName("chars") and varNameExpr.getDeclExpr() = arg and varNameExpr.getCallable().hasName("substitute")
+// select varNameExpr
+// ,varNameExpr.getDeclExpr() 
+// ,varNameExpr.getCallable()
+// ,arg
+// ,arg.getType().getName()
+
+// from MethodAccess call,Parameter chars,Method method
+// where call.getCallee().hasName("isMatch")  and call.getCallee().getParameter(0) = chars and call.getMethod()=method
+// select call, method.getParameter(0),
+// call.getCaller(),call.getCallee(),chars,call.getArgument(0)
+
+// from Method method, Parameter arg
+// where method.hasName("format") and method.getDeclaringType().hasQualifiedName("org.apache.logging.log4j.core.pattern", "MessagePatternConverter") and method.getParameter(1)=arg
+// select method, arg
